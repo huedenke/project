@@ -1,0 +1,439 @@
+---
+title: BANK OF AMERICA, NATIONAL ASSOCIATION Customer Complaint Analysis 
+author: Hue Nguyen Denke
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-title: "Contents"
+    toc-expand: 8
+    toc-depth: 6
+    toc-location: left
+    code-fold: false
+    code-summary: "Show the code"
+    number-sections: true
+    number-depth: 8
+    page-layout: full
+    embed-resources: true
+    anchor-sections: true
+    smooth-scroll: true
+engine: knitr
+knitr:
+  opts_chunk:
+    R.options:
+      width: 120
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, echo=FALSE, results='hide'}
+knitr::opts_chunk$set(message = FALSE,  
+                      warning = FALSE)   
+```
+
+# Import dataset
+
+```{r}
+library(dplyr)
+library(tidytext)
+library(janeaustenr)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+library(readr)
+```
+
+`https://www.consumerfinance.gov/data-research/consumer-complaints/#download-the-data`
+
+```{r}
+# 15 mins importing
+# data <- read.csv("complaints.csv")
+# once importing successfully, we save it to rds file
+# saveRDS(data, "data.rds")
+
+data <- readRDS("data.rds")
+```
+
+# Check dataset
+
+```{r}
+dim(data)
+```
+
+Our dataset includes the following columns:
+
+Date.received: Date that the complaint was received
+
+Product: Product that was complaint about (i.e Debt Collection, Mortgage,..)
+
+Sub.product: Sub category of the product (i.e Credit Card, Debit Card,...)
+
+Issue: Issue category
+
+Sub.issue: Sub issue category
+
+Consumer.complaint.narrative: Consumer explanation on the issue
+
+Company.public.response: Company public response via website or social media
+
+Company: Name of bank. Note: Our dataset includes all US banks, but for the range of this project I will filter out only JP Morgan Chase Co.
+
+State: State where the headquarter is located
+
+ZIP.code: ZIP code where the headquarter is located
+
+Tags: The department/office that the issue will be directed to
+
+Consumer.consent.provided.: Consumer consent to public issue
+
+Submitted.via: Platform the issue was submitted
+
+Date.sent.to.company: Date that the issue was sent to the bank
+
+Company.response.to.consumer: Company resolution to the issue
+
+Timely.response: Whether if this is a timely response or not
+
+Consumer.disputed.: Whether if the consumer dispute the resolution or not
+
+Complaint.ID: The unique identifier of each complaint
+
+# Format date
+
+```{r}
+sapply(data, class)
+
+data$Date.received <- as.Date(data$Date.received,
+                              format = "%Y-%m-%d")
+
+summary(data$Date.received)
+```
+
+```{r}
+data$Date.sent.to.company <- as.Date(data$Date.sent.to.company,
+                              format = "%Y-%m-%d")
+
+summary(data$Date.sent.to.company)
+```
+
+# Data Summary
+
+Our dataset spans 14 years (2011-12-01 - 2025-09-24) with 11,109,951 complaints.
+
+These complaints come from 7,756 US banks.
+
+```{r}
+range(data$Date.received)
+```
+
+The top 5 companies with most complaints are:
+
+```{r}
+as.data.frame(sort(table(data$Company, useNA = "always"), decreasing = T)) -> df_bank
+
+as.character(df_bank$Var1[1:5])
+```
+
+# `BANK OF AMERICA, NATIONAL ASSOCIATION`
+
+```{r}
+df_ba <- data |> subset(Company == "BANK OF AMERICA, NATIONAL ASSOCIATION")
+
+dim(df_ba)
+```
+
+## Clean `Consumer.complaint.narrative`
+
+```{r}
+sapply(X = df_ba, 
+        FUN = function(x){  length(which(is.na(x)))  }   )
+```
+
+Convert empty space to NA
+
+```{r}
+df_ba$Consumer.complaint.narrative[which(df_ba$Consumer.complaint.narrative == "")] <- NA
+```
+
+# Sentiment Analysis consumer complaint narrative
+
+```{r}
+# a. High level overview
+# Use word cloud and sentiment bing
+get_sentiments("bing")
+
+# tokenize words
+df_ba <- df_ba %>%
+  unnest_tokens(word, Consumer.complaint.narrative)
+
+# get negative words from bing
+bing_negative <- get_sentiments("bing") %>%
+  filter(sentiment == "negative")
+
+# count negative word to prep for word cloud
+negative_word_count <- df_ba %>%
+  inner_join(bing_negative) %>%
+  count(word, sort = TRUE)
+
+# negative_word_count
+```
+
+# Word cloud
+
+```{r}
+library(wordcloud2)
+library(webshot)
+library(htmlwidgets)
+
+negative_word_count <- readRDS("negative_word_count.rds")
+
+wordcloud2(data = negative_word_count,
+                             size = 3,
+                             gridSize = 3,
+                             color = "random-dark",
+                             shape = "circle",
+                             backgroundColor = "white")
+```
+
+
+```{r}
+# word_cloud_fig <- wordcloud2(data = negative_word_count,
+#                              size = 3,
+#                              gridSize = 3,
+#                              color = "random-dark",
+#                              shape = "circle",
+#                              backgroundColor = "white")
+# 
+# saveWidget(word_cloud_fig,
+#            "word_cloud_fig.html",
+#            selfcontained = F)
+# 
+# webshot::webshot("word_cloud_fig.html",
+#                  "word_cloud_fig.png",
+#                  vwidth = 2000,
+#                  vheight = 2000,
+#                  delay = 8)
+```
+
+![](word_cloud_fig.png)
+
+# Barchart
+
+```{r}
+# Create chart to analyze emotion based on each product
+complaint_product_sentiment <- df_ba %>%
+  inner_join(get_sentiments("bing"),
+             relationship = "many-to-many") %>%
+  count(Product, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+
+complaint_product_sentiment$Product <- reorder(complaint_product_sentiment$Product,
+                                               complaint_product_sentiment$sentiment)
+```
+
+```{r}
+levels(complaint_product_sentiment$Product)[1:20] -> top10
+
+complaint_product_sentiment_top10 <- complaint_product_sentiment |> subset(Product %in% top10)
+
+complaint_product_sentiment_top10$Product <- as.character(complaint_product_sentiment_top10$Product)
+
+complaint_product_sentiment_top10$Product[8] <- "Credit reporting, credit repair services,\nor other personal consumer reports"
+
+complaint_product_sentiment_top10$Product <- reorder(complaint_product_sentiment_top10$Product,
+                                               complaint_product_sentiment_top10$sentiment)
+
+library(RColorBrewer)
+n <- 10
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+set.seed(17)
+col_vector_a <- col_vector[sample(1:length(col_vector), size = n)]
+
+p1 <- ggplot(complaint_product_sentiment_top10, 
+       aes(x = Product, 
+           y = sentiment,
+           fill = Product)) +
+  geom_col() +
+  labs(title = "Net Sentiment by Product",
+       x = "Product",
+       y = "Net Sentiment (Positive - Negative)") +
+
+  
+  theme_bw(base_size = 10) +
+
+theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1,
+                                 color = "black"))  +
+  
+  theme(text = element_text(face = "bold",
+                            color = "black"))
+  
+p1
+
+ggsave(filename = "p1.png",
+       plot = p1,
+       height = 8,
+       width = 8,
+       unit = "in",
+       dpi = 300)
+```
+
+![](p1.png)
+
+# Comparative Analysis using `nrc` sentiment
+
+```{r}
+# Method: Compare the emotional content of disputed vs. non-disputed complaints
+# Goal: identify emotional patterns that might predict complaint resolution difficulty
+
+nrc <- get_sentiments("nrc")
+
+# join with nrc
+complaints_tibble <- df_ba %>%
+  anti_join(stop_words) %>% # remove common stop word
+  inner_join(nrc, relationship = "many-to-many")
+
+# calculate emotion scores for each complaint
+emotion_scores <- complaints_tibble %>%
+  count(Complaint.ID, Consumer.disputed., sentiment) %>%
+  group_by(Complaint.ID) %>%
+  mutate(emotion_proportion = n / sum(n)) %>%
+  ungroup()
+
+# aggregate emotions by dispute status
+emotion_by_dispute <- emotion_scores %>%
+  group_by(Consumer.disputed., sentiment) %>%
+  summarise(
+    avg_score = mean(n, na.rm = TRUE),
+    avg_proportion = mean(emotion_proportion, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+```{r}
+# Create stacked bar chart visualization
+ggplot(emotion_by_dispute,
+       aes(x = sentiment,
+           y = avg_proportion,
+           fill = Consumer.disputed.)) +
+  geom_bar(position = "Stack", stat = "identity") +
+  scale_fill_manual(values = c("No" = "#E74C3C",
+                               "Yes" = "#3498DB"),
+                    labels = c("No" = "Disputed", 
+                               "Yes" = "Not Disputed")) +
+  labs(title = "Emotional Content in Disputed vs. Non-Disputed Complaints",
+       subtitle = "Comparison of normalized emotion scores",
+       x = "Emotion",
+       y = "Average Proportion of Words",
+       fill = "Complaint Status") +
+  theme_bw(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 60,
+                                   hjust = 1,
+                                   size = 15,
+                                   face = "bold")) +
+
+theme(axis.text.y = element_text(angle = 0,
+                                   hjust = 1,
+                                   size = 15,
+                                   face = "bold")) 
+```
+
+# Logistic regression
+
+```{r}
+# Statistical analysis - logistic regression
+# Reshape data for logistic regression
+complaints_tibble <- complaints_tibble %>%
+  mutate(binary_dispute = case_when(
+    Consumer.disputed. == "Yes" ~ 1,
+    Consumer.disputed. == "No" ~ 0,
+    .default = NA
+  ))
+
+emotion_wide <- complaints_tibble %>%
+  count(Complaint.ID,binary_dispute, sentiment) %>%
+  pivot_wider(
+    id_cols = c(Complaint.ID, binary_dispute),
+    names_from = sentiment,
+    values_from = n,
+    values_fill = 0
+  )
+```
+
+**Vẽ boxplot**
+
+```{r}
+library(tidyr)
+df_long <- tidyr:::pivot_longer(emotion_wide, 
+                        cols = c(3:12),
+                        names_to = "emotion", 
+                        values_to = "score")
+
+
+df_long <- as.data.frame(df_long)
+
+df_long <- na.omit(df_long)
+
+df_long$binary_dispute <- factor(df_long$binary_dispute,
+                                 levels = c(0, 1),
+                                 labels = c("Not disputed",
+                                            "Disputed"))
+
+```
+
+```{r}
+tapply(X = df_long$score,
+       INDEX = list(df_long$binary_dispute, df_long$emotion),
+       FUN = mean)
+```
+
+
+```{r}
+ggplot(data = df_long,
+       mapping = aes(x = binary_dispute,
+                     y = log(score),
+                     fill = emotion)) +
+  
+  geom_boxplot() +
+  
+  facet_wrap(~ emotion,
+             nrow = 4,
+             ncol = 3)
+```
+
+**Run model**
+
+```{r}
+# Run logistic regression
+table(emotion_wide$binary_dispute, useNA = "always")
+
+dispute_model <- glm(binary_dispute ~ anger + fear + joy + sadness + trust + surprise + anticipation + disgust,
+                     data = emotion_wide, family = "binomial")
+
+# View model summary
+summary(dispute_model)
+
+# validate model with Chi-Squared Test 
+chisq_test <- anova(dispute_model, test = "Chisq")
+print(chisq_test)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
