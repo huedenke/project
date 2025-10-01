@@ -10,6 +10,8 @@ format:
     toc-depth: 6
     toc-location: left
     code-fold: false
+    code-tools:
+      toggle: true
     code-summary: "Show the code"
     number-sections: true
     number-depth: 8
