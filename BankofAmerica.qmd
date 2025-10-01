@@ -461,7 +461,9 @@ Anger is significant in the sequential test but not in the coefficient test
 
 * Consider whether to include anger based on your research question and theoretical framework
 
+# R script
 
+[Link](https://github.com/huedenke/project/blob/main/BankofAmerica.qmd)
 
 
 
